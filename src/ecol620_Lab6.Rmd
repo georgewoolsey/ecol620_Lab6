@@ -1,0 +1,163 @@
+---
+title: "Lab 6 - Connectivity"
+subtitle: "ECOL 620 - Applications in Landscape Ecology"
+author: "George Woolsey"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    # code_folding: hide
+editor_options: 
+  chunk_output_type: console
+knit: (function(inputFile, encoding){ 
+    out_dir <- '../';
+    rmarkdown::render(inputFile, encoding = encoding, output_file=file.path(dirname(inputFile), out_dir, 'index.html'));
+    file.copy(from = "..//index.html", to = '..///data//lab6_george_woolsey.html', overwrite = TRUE)
+  })
+---
+
+# Setup
+
+```{r, include=FALSE, warning=F, message=F}
+# knit options
+knitr::opts_chunk$set(
+  echo = TRUE
+  , warning = FALSE
+  , message = FALSE
+  # , results='hide'
+  , fig.width = 10
+  , fig.height = 7
+)
+```
+
+```{r}
+# bread-and-butter
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(scales)
+library(latex2exp)
+# visualization
+library(kableExtra)
+library(cowplot)
+# spatial analysis
+library(terra)
+library(stars)
+library(gdistance) #for least-cost paths/circuit theory; version 1.2-2 used
+library(igraph) #for patch-based graphs; version 1.2.2 used
+# set seed
+set.seed(11)
+```
+
+# Rules
+
+Complete your assignment using the R markdown file and submit individual assignments to Canvas. Knit your script and submit an .html file on Canvas. Please use  the following naming convention: lab6_firstname_lastname.html (ex. lab6_kyle_horton.html).  Note, we will not grade labs in any other format.
+
+---
+
+# Effective distances:
+
+## Question 1
+
+Describe the primary differences using Euclidean distance, least-cost distance, circuit theory (commute distance), and randomized shortest-path distance to measure effective distance. Which do you feel yields the most robust estimation? (4-5 sentences) (5 pts) 
+
+## Question 2	
+
+### part a	
+
+How many landcover classes are represented in the "panther_landcover" raster? (1 pt)
+
+```{r}
+
+```
+
+### part b
+
+How many classes remain after the reclassification to resistance, i.e., "land_cost"? (1 pt)
+
+```{r}
+
+```
+
+### part c
+
+From the supplied rankings, which landcover classes (from the original classification)  provide the most and least resistance to the movement of Florida panthers? (1 pt) 
+
+### part d
+
+How are the resistance measures determined? (1-2 sentences) (1 pt)
+
+## Question 3	
+
+After calculating effective distance with the four methods (Euclidean distance, least-cost distance, commute distance, and randomized shortest-paths distance), which are most and least correlated? (4 pts)
+
+```{r}
+
+```
+
+
+## Question 4	
+
+Within plot 9.7 of Fletcher and Fortin, what does a single point mean? Why are there 10 points per plot? (1-2 sentences) (2 pts)
+
+
+## Question 5
+
+a)	Using the four methods (Euclidean distance, least-cost distance, commute distance, and randomized shortest-paths distance), make a single four-paneled plot with line segments connecting the public land centroids with the cost raster and protected areas under these segments. Weight the line segments by the inverse of the effective distance. Use ggplot to generate the plot. See example on Canvas (11 pts)
+```{r}
+
+```
+
+
+### part b
+
+Do you see any prominent differences among the methods? You can make a visual assessment. (1-2 sentences) (2 pts)
+
+
+### part c
+
+Which conservation area pairing shows the greatest travel cost by least cost distance? Which conservation area pairing shows the least travel cost by circuit theory? Please provide the names of the parks. (2 pts)
+
+---
+
+# Least-cost path & Least-cost corridor
+
+## Question 6
+
+Plot the least cost-path and least-cost corridor between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area using the lower 20% of accumulated cost cells. Include the outline of the conservation areas, the centroid points (of the conservation areas), and the resistance surface. Use ggplot to generate the plot. (8 pts)
+
+```{r}
+
+```
+
+### part a)	
+
+What is the dominant cover type in the corridor? (3.5 pts)
+
+```{r}
+
+```
+
+
+### part b
+
+What’s the Shannon diversity and evenness in the corridor? (3.5 pts)
+
+```{r}
+
+```
+
+---
+
+# Flow mapping
+
+## Question 7
+
+Generate a four-panel plot (analogous to figure 9.10) using theta values of 0.000, 0.000001, 0.00001, and 0.001, but mapping probabilities between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area. What do the theta values signify? How do they influence connectivity measures? Use ggplot. (5 pts)
+
+```{r}
+
+```
+
+
