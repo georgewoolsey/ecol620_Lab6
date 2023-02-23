@@ -62,27 +62,111 @@ Complete your assignment using the R markdown file and submit individual assignm
 
 Describe the primary differences using Euclidean distance, least-cost distance, circuit theory (commute distance), and randomized shortest-path distance to measure effective distance. Which do you feel yields the most robust estimation? (4-5 sentences) (5 pts) 
 
+<span style="color: teal;">
+Effective distance is used to quantify landscape connectivity as a measure for distance "modified with the cost to move between habitat patches based on detailed geographical information on the landscape as well as behavioural aspects of the organisms studied" ([Adriaensen et al. 2003](https://www.sciencedirect.com/science/article/abs/pii/S0169204602002426), p.233). Euclidean distance, least-cost distance, circuit theory (commute distance), and randomized shortest-path distance are four commonly used metrics to measure effective distance. Euclidean distance measures aerial distance and ignores the cost to move between habitat patches. Least-cost distance measures the shortest distance between habitat patches based on the path that includes the minimum cumulative costs to move. Circuit theory (commute distance) calculates distance by quantifying the expected time for an individual to move from one location to another and back again. Randomized shortest-path distance links the idea of least-cost paths and resistance distances as being along a continuum of movement possibilities by altering a parameter, $\theta$ (when $\theta=0$, the model is equivalent to a circuit theory approach; as $\theta$ increases the model approaches the least-cost distance method). The most appropriate measure of effective distance should be selected based on the study objectives, the species dispersal mechanism, and prior knowledge ([Diniz et al. 2020](https://link.springer.com/article/10.1007/s10980-019-00935-3)).
+</span>
+
 ## Question 2	
+
+### Load data
+
+```{r, results='hide'}
+# landcover data for florida panther
+landcov <- terra::rast("../data/panther_landcover.tif")
+# check it
+transform_crs <- terra::crs(landcov)
+terra::res(landcov)
+terra::ext(landcov)
+if(FALSE){
+  paste0((terra::expanse(landcov) / 10000) %>% scales::comma(), " ha")
+  plot(landcov)
+}
+# load public areas in need of connections
+public_lands <- sf::st_read("../data/panther_publicland.shp") %>% 
+  dplyr::rename_with(tolower)
+# set crs
+sf::st_crs(public_lands) <- transform_crs
+# check it
+public_lands %>% sf::st_set_geometry(NULL) %>% dplyr::glimpse()
+if(FALSE){
+  ggplot(public_lands) + 
+    geom_sf(aes(fill=maname_ab)) + 
+    scale_fill_viridis_d() + 
+    theme_bw()
+}
+```
+
 
 ### part a	
 
 How many landcover classes are represented in the "panther_landcover" raster? (1 pt)
 
-```{r}
-
+```{r, eval=FALSE}
+landcov %>% terra::unique() %>% nrow()
 ```
+
+<span style="color: teal;">
+The "panther_landcover.tif" raster data includes **`r landcov %>% terra::unique() %>% nrow()`** unique values.
+</span>
 
 ### part b
 
 How many classes remain after the reclassification to resistance, i.e., "land_cost"? (1 pt)
 
-```{r}
+A resistance surface values raster cells to indicate the resistance or difficulty imposed by environmental components on movement of individuals.
 
+```{r, results='hide'}
+# load reclassification to resistance surface
+resistance_reclass <- read.table("../data/resistance reclass.txt", header = T) %>% 
+  dplyr::rename_with(tolower)
+resistance_reclass %>% dplyr::glimpse()
+# create resistance surface raster
+rcl_matrix <- resistance_reclass %>% dplyr::select(landcover, changeto) %>% as.matrix()
+resistance_surface <- terra::classify(landcov, rcl = rcl_matrix)
+resistance_surface %>% terra::unique() %>% nrow()
+if(FALSE){
+  plot(resistance_surface)
+}
 ```
+
+<span style="color: teal;">
+After reclassification, the resistance surface raster includes **`r resistance_surface %>% terra::unique() %>% nrow()`** unique values.
+</span>
 
 ### part c
 
 From the supplied rankings, which landcover classes (from the original classification)  provide the most and least resistance to the movement of Florida panthers? (1 pt) 
+
+```{r}
+tbl_temp <- terra::freq(resistance_surface) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(resistance=value) %>% 
+  dplyr::left_join(
+    resistance_reclass %>% dplyr::select(-landcover)
+    , by = c("resistance" = "changeto")
+  ) %>% 
+  dplyr::arrange(resistance) %>% 
+  dplyr::mutate(
+    lbl = paste0("Resistance ", resistance, " (pixels=", scales::comma(count), ")")
+  )
+# table
+kableExtra::kable(
+    tbl_temp %>% dplyr::select(description)
+    , caption = "Resistance Surface for Florida panthers<br>*lowest to highest resistance"
+    , col.names = c("")
+  ) %>% 
+  kable_classic("striped", full_width=T) %>%
+  pack_rows(index = table(forcats::fct_inorder(tbl_temp$lbl)))
+```
+
+<span style="color: teal;">
+The table above provides details of the landcover classes (from the original classification) grouped by resistance to the movement of Florida panthers.
+</span>
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE}
+remove(list = ls()[grep("_temp",ls())])
+gc()
+```
 
 ### part d
 
