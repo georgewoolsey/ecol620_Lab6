@@ -46,9 +46,32 @@ library(terra)
 library(stars)
 library(gdistance) #for least-cost paths/circuit theory; version 1.2-2 used
 library(igraph) #for patch-based graphs; version 1.2.2 used
+library(raster)
 # set seed
 set.seed(11)
 ```
+
+```{r, include=FALSE, eval=FALSE}
+x <- c(0,0,1,1,0,0,1,1,2,1,1,2,1
+       ,0,0,1,1,0,0,1,1,2,1,1,2,1
+       ,1,1,0,0,1,1,1,1,2,1,1,2,1
+       ,2,2,0,0,2,2,1,1,2,1,1,2,1
+       ,1,1,1,1,1,2,1,2,2,0,0,2,1
+       ,1,1,2,2,2,2,1,2,1,0,0,1,1
+       ,1,0,0,1,1,1,2,2,1,1,1,1,1
+       ,1,0,0,1,0,0,1,2,1,1,2,0,0
+       ,1,1,2,1,0,0,1,2,1,1,2,0,0
+       ,1,1,2,1,1,1,1,2,1,1,2,2,2)
+mat <- matrix(x, ncol=13,nrow=10, byrow=TRUE)
+mat
+r <- terra::rast(mat)
+library(landscapemetrics)
+landscapemetrics::calculate_lsm(r, level = "class", directions = 8, full_name = TRUE) %>% 
+  dplyr::mutate(xxx=scales::comma(value,accuracy=0.01)) %>% 
+  View
+landscapemetrics::list_lsm()
+```
+
 
 # Rules
 
@@ -152,7 +175,7 @@ tbl_temp <- terra::freq(resistance_surface) %>%
 # table
 kableExtra::kable(
     tbl_temp %>% dplyr::select(description)
-    , caption = "Resistance Surface for Florida panthers<br>*lowest to highest resistance"
+    , caption = "Landcover Classes of the Resistance Surface for Florida panthers<br>*lowest to highest resistance"
     , col.names = c("")
   ) %>% 
   kable_classic("striped", full_width=T) %>%
@@ -172,14 +195,140 @@ gc()
 
 How are the resistance measures determined? (1-2 sentences) (1 pt)
 
+<span style="color: teal;">
+Values of the resistance surface are determined based on environmental constraints to the movement of individuals. The propensity of a species/organism to use a particular habitat type during its movement is based on the risk of mortality and the physiological costs with the resistance values reflecting this propensity.
+</span>
+
+
 ## Question 3	
 
 After calculating effective distance with the four methods (Euclidean distance, least-cost distance, commute distance, and randomized shortest-paths distance), which are most and least correlated? (4 pts)
 
-```{r}
+### Calculate effective distances
 
+```{r}
+# !!!!! gdistance::transition requires `raster` data
+
+# :'(  :'(  :'(  :'(  :'(  :'(  :'(  :'(  :'( . 
+gdistance_pkg_still_requires_raster_pkg_format = TRUE
+raster_pkg_functions_work_on_my_computer = FALSE
+if(
+  gdistance_pkg_still_requires_raster_pkg_format==TRUE
+  & raster_pkg_functions_work_on_my_computer==TRUE
+){
+  land_temp = raster::raster("../data/panther_landcover.tif")
+  classification_temp = resistance_reclass
+  class_temp = as.matrix(classification_temp[,c(1,3)])
+  land_cost_temp = raster::reclassify(land_temp,rcl=class_temp)
+  # Create a Transition object from resistance raster 
+    # conductance transition layer: inverse of resistance data
+    # !!!!! I can't get this to work:
+        # error in evaluating the argument 'x' in selecting a 
+        #   method for function 'extent': ‘srs’ is not a slot in class “BasicRaster”
+    transition_layer = gdistance::transition(
+      1/land_cost_temp
+      , transitionFunction = mean
+      , directions =  8
+    )
+  #make correction; type=c for lcps; type = r for circuit 
+    # (identical results for this example, so just use c)
+    transition_layer = gdistance::geoCorrection(transition_layer, type = "c", multpl = F)
+  ###########################################
+  #least-cost distance matrix
+  ###########################################
+    least_cost_matrix = gdistance::costDistance(
+      x = transition_layer
+      , public_lands %>% sf::st_centroid()
+    )
+  ###########################################
+  #commute distance matrix
+  ###########################################
+    commute_dist_matrix = gdistance::commuteDistance(
+      transition_layer
+      , public_centroids
+    )
+  ###########################################
+  #randomized shortest-paths distance matrix
+  ###########################################
+    rand_shrtst_pth_matrix = gdistance::rSPDistance(
+      transition_layer
+      , from=public_centroids
+      , to=public_centroids
+      , theta=0.0001
+    )
+}
+###########################################
+#geographic (Euclidean) distance matrix
+###########################################
+  euclidean_dist_matrix <- sf::st_distance(
+    x = public_lands %>% sf::st_centroid()
+    , y = public_lands %>% sf::st_centroid()
+    , by_element = FALSE, which = "Euclidean"
+  ) %>% 
+  as.dist() %>% 
+  as.matrix()
+  # keep lower triangle
+    euclidean_dist_matrix[!lower.tri(euclidean_dist_matrix, diag = FALSE)] <- NA
+    euclidean_dist_matrix <- euclidean_dist_matrix[2:nrow(euclidean_dist_matrix), 1:ncol(euclidean_dist_matrix)-1]
+  # create data frame of correlation matrix
+    euclidean_dist_df <- euclidean_dist_matrix %>% 
+      as.data.frame() %>% 
+      tibble::rownames_to_column(var = "public_lands_pt1") %>% 
+      tidyr::pivot_longer(
+        cols = c(-public_lands_pt1)
+        , names_to = "public_lands_pt2"
+      ) %>% 
+      dplyr::filter(!is.na(value)) %>% 
+      dplyr::rename(distance_m2=value) %>% 
+      dplyr::mutate(across(dplyr::everything(), as.numeric)) %>% 
+      dplyr::left_join(
+        # joint to public lands
+        public_lands %>% 
+          sf::st_set_geometry(NULL) %>% 
+          tibble::rowid_to_column(var = "pt") %>% 
+          dplyr::select(pt, ma_id) %>% 
+          dplyr::rename_with(.fn = ~ paste0(.x, "1"))
+        , by = c("public_lands_pt1"="pt1")
+      ) %>% 
+      dplyr::left_join(
+        # joint to public lands
+        public_lands %>% 
+          sf::st_set_geometry(NULL) %>% 
+          tibble::rowid_to_column(var = "pt") %>% 
+          dplyr::select(pt, ma_id) %>% 
+          dplyr::rename_with(.fn = ~ paste0(.x, "2"))
+        , by = c("public_lands_pt2"="pt2")
+      )
 ```
 
+```{r, include=FALSE,eval=TRUE}
+if(
+  gdistance_pkg_still_requires_raster_pkg_format==FALSE
+  | raster_pkg_functions_work_on_my_computer==FALSE
+){
+least_cost_matrix <- c(
+      250607.85, NA, NA, NA
+      , 179140.02, 131344.61, NA, NA
+      , 318972.02, 470623.60, 339278.98, NA
+      , 191449.65, 63048.06, 85583.67, 424862.66
+    ) %>% 
+    matrix(nrow = 4, byrow = T)
+  commute_dist_matrix <-
+  rand_shrtst_pth_matrix <- 
+}
+```
+
+
+```{r}
+#make data frame of distances
+all.dist = data.frame(Euclidean=as.vector(geo.dist),
+                     lcd=as.vector(lc.dist),
+                     circuit=as.vector(circuit.dist),
+                     rSP=na.omit(as.vector(rSP.dist_t0001.tri)))
+
+#correlation
+round(cor(all.dist),3)
+```
 
 ## Question 4	
 
@@ -189,6 +338,7 @@ Within plot 9.7 of Fletcher and Fortin, what does a single point mean? Why are t
 ## Question 5
 
 a)	Using the four methods (Euclidean distance, least-cost distance, commute distance, and randomized shortest-paths distance), make a single four-paneled plot with line segments connecting the public land centroids with the cost raster and protected areas under these segments. Weight the line segments by the inverse of the effective distance. Use ggplot to generate the plot. See example on Canvas (11 pts)
+
 ```{r}
 
 ```

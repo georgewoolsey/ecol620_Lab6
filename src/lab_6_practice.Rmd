@@ -29,7 +29,7 @@ library(tidyverse)
 
 ```{r}
 #set working directory where data were downloaded
-setwd("~/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6")
+# setwd("~/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6")
 ```
 
 
@@ -45,7 +45,8 @@ memory.limit(size=mem.max)
 ######################################################
 
 ```{r}
-land = raster("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6/panther_landcover.tif")
+# land = raster("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6/panther_landcover.tif")
+land = raster("../data/panther_landcover.tif")
 ```
 
 
@@ -59,7 +60,8 @@ crs.land = projection(land)
 plot(land)
 
 #public areas in need of connections
-public = readOGR("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6/panther_publicland.shp")
+# public = readOGR("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6/panther_publicland.shp")
+public = readOGR("../data/panther_publicland.shp")
 projection(public)
 projection(public) = crs.land
 names(public@data)                        #attributes table
@@ -81,7 +83,7 @@ public_centroids@coords[1,]               #x,y of first site
 
 ```{r}
 #import reclassification table
-classification = read.table("/Users/kylehorton/Desktop/ECOL_620/Course_materials/Week6/Lab6/data_for_lab6/resistance reclass.txt", header=T)
+classification = read.table("../data/resistance reclass.txt", header=T)
 
 #inspect
 head(classification,3)
