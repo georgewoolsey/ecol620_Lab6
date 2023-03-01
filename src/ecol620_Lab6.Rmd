@@ -47,6 +47,7 @@ library(stars)
 library(gdistance) #for least-cost paths/circuit theory; version 1.2-2 used
 library(igraph) #for patch-based graphs; version 1.2.2 used
 library(raster)
+library(landscapemetrics)
 # set seed
 set.seed(11)
 ```
@@ -503,9 +504,7 @@ gc()
 
 Plot the least cost-path and least-cost corridor between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area using the lower 20% of accumulated cost cells. Include the outline of the conservation areas, the centroid points (of the conservation areas), and the resistance surface. Use ggplot to generate the plot. (8 pts)
 
-############################################
-# Least-cost corridor
-############################################
+### Data prep
 
 ```{r}
 # filter polygons
@@ -543,11 +542,11 @@ least_cost_path <- gdistance::shortestPath(
   , output="SpatialLines"
 )
 #get cumulative costs from each public land
-cum_cost1 <- gdistance::accCost(transition_matrix
+cum_cost1 <- gdistance::accCost(transition_matrix_filter
   , public_lands_filter |> dplyr::filter(dplyr::row_number()==1) |> 
     sf::st_centroid() |> sf::st_coordinates()
 )
-cum_cost2 <- gdistance::accCost(transition_matrix
+cum_cost2 <- gdistance::accCost(transition_matrix_filter
   , public_lands_filter |> dplyr::filter(dplyr::row_number()==2) |> 
     sf::st_centroid() |> sf::st_coordinates()
 )
@@ -559,6 +558,15 @@ least_cost_corridor <- raster::overlay(
     , fun=function(x, y){return(x + y)}
   ) |> 
   terra::rast()
+
+# get raster with only lowest 20% quantile cost cells
+least_cost_corridor_q20 <- least_cost_corridor |>
+  terra::clamp(
+    lower = -Inf
+    , upper = stats::quantile(least_cost_corridor, probs = 0.20, na.rm=TRUE)
+    , values = FALSE
+  ) |> 
+  terra::classify(rcl = (c(-Inf, Inf, 1) |> matrix(ncol=3, byrow=TRUE)))
 
 if(FALSE){
   #plot
@@ -572,60 +580,148 @@ if(FALSE){
   plot(public_lands_filter, add=T)
 
 }
-###
-###
-###
-#get lower quantile
-quantile10 = quantile(leastcost_corridor, probs=0.10, na.rm=TRUE)
-
-#make new truncated layer
-leastcost_corridor10 = leastcost_corridor
-values(leastcost_corridor10) = NA
-leastcost_corridor10[leastcost_corridor < quantile10] = 1 #truncate to identify corridor
-
-#plot
-plot(leastcost_corridor, legend=F, axes=F)
-plot(leastcost_corridor10, legend=F,axes=F, add=T)
-points(public_centroids, col="grey30")
-lines(fpwr_ossf_lcp, col="red", lw=3)
-###
-gg_corridor=as.data.frame(leastcost_corridor, xy=T)
-gg_corridor10=as.data.frame(leastcost_corridor10, xy=T)
-gg_lcp= sp::SpatialLinesDataFrame(fpwr_ossf_lcp, data.frame(ID = c(1)), match.ID = F)
-poly_two_park=subset(public, MANAME=="FLORIDA PANTHER NATIONAL WILDLIFE REFUGE"|MANAME=="OKALOACOOCHEE SLOUGH STATE FOREST")
-
-ggplot()+
-  geom_raster(data=gg_corridor, aes(x=x, y=y, fill=(layer)))+
-  geom_raster(data=na.omit(gg_corridor10), aes(x=x, y=y), fill="gray")+
-  geom_path(data=gg_lcp,  aes(x=long, y=lat), size=2, colour="red")+
-  geom_point(data=as.data.frame(public_centroids), aes(x=x, y=y),colour="white", size=4)+
-  geom_polygon(data=poly_two_park, aes(x=long, y=lat, group=group),colour="white", fill="gray", alpha=.3)+
-   coord_equal(xlim=c(min(gg_corridor$x),max(gg_corridor$x)),
-              ylim=c(min(gg_corridor$y),max(gg_corridor$y)))+
-  scale_fill_viridis_c(option = "B", direction = -1)+
-  theme_classic()+
-  labs(y="Northing (m)", x="Easting (m)", fill="Sum of the \ncumulative \nresistances")+
-  theme(plot.title = element_text(hjust = 0.5)) +
-  theme(text = element_text(size=15))
 ```
 
+
+### Plot: least-cost path & corridor
+
+```{r}
+# plot
+ggplot()+
+  geom_raster(
+    data = resistance_surface_filter |> 
+        as.data.frame(xy=T) |> 
+        dplyr::rename(resistance=3)
+    , mapping = aes(x=x, y=y, fill=as.factor(resistance))
+  ) +
+  geom_raster(
+    data = least_cost_corridor_q20 |> 
+        as.data.frame(xy=T) |> 
+        dplyr::rename(corridor=3) |> 
+        dplyr::filter(!is.na(corridor))
+    , mapping = aes(x=x, y=y)
+    , fill = "slategray3"
+    , alpha = 0.7
+  ) +
+  geom_sf(data = least_cost_path |> sf::st_as_sfc(), color = "blue", size = 4) +
+  geom_sf(data = public_lands_filter, fill = "gray70", color = "black", alpha = 0.3) +
+  geom_sf(data = public_lands_filter |> sf::st_centroid(), color = "black", size = 2) +
+  geom_sf_text(
+    data = public_lands_filter |> sf::st_centroid()
+    , mapping = aes(label = maname_ab)
+    , vjust = 4
+    , hjust = 0.7
+    , size = 2.5
+    , color = "white"
+  ) +
+  
+  scale_fill_viridis_d(option = "cividis") +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(
+    subtitle = ""
+    , x = "Longitude"
+    , y = "Latitude"
+    , fill = "Resistance"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = c(0.09, 0.15)
+    , legend.key.size = unit(0.25, 'cm')
+    , legend.text = element_text(size = 7)
+    , legend.title = element_text(size = 7)
+    , axis.title = element_text(size = 7)
+    , axis.text.y = element_text(size=6)
+    , axis.text.x = element_text(size=6)
+    , panel.border = element_blank()
+    , plot.subtitle = element_text(size=9)
+    , panel.grid = element_blank()
+  ) +
+  guides(size = "none")
+```
+
+<span style="color: teal;">
+The figure above shows the least cost-path and least-cost corridor (blue) between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area using the lower 20% of accumulated cost cells overlayed on the resistance surface for Florida panther movement.
+</span>
 
 ### part a)	
 
 What is the dominant cover type in the corridor? (3.5 pts)
 
 ```{r}
-
+landcov_corridor_temp <- landcov |> 
+  terra::mask(
+    terra::as.polygons(least_cost_corridor_q20, trunc=TRUE, dissolve=TRUE, values=TRUE, na.rm=TRUE) |> 
+      sf::st_as_sf() |> 
+      sf::st_union() |> 
+      terra::vect()
+  ) 
+landcov_corridor_temp_freq <- landcov_corridor_temp |> 
+  terra::freq() |> 
+  dplyr::as_tibble() |> 
+  dplyr::left_join(
+    resistance_reclass
+    , by = c("value" = "landcover")
+  ) |> 
+  dplyr::mutate(pct_area = count/sum(count,na.rm = T)) |> 
+  dplyr::arrange(desc(count)) |> 
+  dplyr::slice_head(n = 10)
+# plot
+ggplot(landcov_corridor_temp_freq, mapping = aes(y = reorder(description, pct_area), x = pct_area)) + 
+  geom_col(mapping = aes(fill=pct_area), width = 0.7) +
+  geom_text(
+    mapping = aes(label = pct_area |> scales::percent(accuracy=0.1))
+    , color = "black", size = 3.5
+    , hjust = -0.1
+  ) +
+  scale_fill_distiller(palette = "Oranges", direction = 1) + 
+  scale_x_continuous(expand = expansion(mult = c(0, .1)), labels = scales::percent_format(scale = 1)) +
+  labs(
+    x = "% of least-cost corridor area"
+    , y = "landcover"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none"
+    , axis.text = element_text(size=7)
+    , axis.text.y = element_text(size=8)
+    , axis.title = element_text(size=7)
+  )
 ```
 
+<span style="color: teal;">
+The figure above shows the dominant cover type in the least-cost corridor between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area using the lower 20% of accumulated cost cells. The dominant landcover type in the corridor is **`r landcov_corridor_temp_freq$description[1]`** which covers roughly **`r landcov_corridor_temp_freq$pct_area[1] |> scales::percent(accuracy=0.1)`** of the corridor area.
+</span>
 
 ### part b
 
 What’s the Shannon diversity and evenness in the corridor? (3.5 pts)
 
 ```{r}
+rbind(
+    cbind(landscapemetrics::lsm_l_shdi(landcov_corridor_temp), metric_f = "Shannon's diversity index")
+    , cbind(landscapemetrics::lsm_l_shei(landcov_corridor_temp), metric_f = "Shannon's evenness index")
+  ) |> 
+  dplyr::select(
+    metric_f,value
+  ) |> 
+  kableExtra::kable(
+      format = "html" 
+      , caption = "Shannon diversity and evenness in the corridor"
+      , escape = FALSE
+      , col.names = c(
+        ""
+        , "Value"
+      )
+      , digits = 2
+    ) |> 
+    kable_styling(font_size = 14, full_width=F)
 
 ```
+
+<span style="color: teal;">
+The table above shows the Shannon's diversity index (**`r landscapemetrics::lsm_l_shdi(landcov_corridor_temp) |> dplyr::pull(value) |> round(2)`**) and Shannon's evenness index (**`r landscapemetrics::lsm_l_shei(landcov_corridor_temp) |> dplyr::pull(value) |> round(2)`**) in the least-cost corridor between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area using the lower 20% of accumulated cost cells.
+</span>
 
 ---
 
@@ -636,7 +732,70 @@ What’s the Shannon diversity and evenness in the corridor? (3.5 pts)
 Generate a four-panel plot (analogous to figure 9.10) using theta values of 0.000, 0.000001, 0.00001, and 0.001, but mapping probabilities between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area. What do the theta values signify? How do they influence connectivity measures? Use ggplot. (5 pts)
 
 ```{r}
-
+# plot function()
+plt_random_walk_fn <- function(theta_val) {
+  #random walk (akin to a current map in Circuitscape)
+  gdistance::passage(
+      transition_matrix_filter
+      , origin = public_lands_filter |> 
+          dplyr::filter(dplyr::row_number()==1) |> 
+          sf::st_centroid() |> 
+          sf::st_coordinates()
+      , goal = public_lands_filter |> 
+          dplyr::filter(dplyr::row_number()==2) |> 
+          sf::st_centroid() |> 
+          sf::st_coordinates()
+      , theta = theta_val
+    ) |> 
+    terra::rast() |> 
+    as.data.frame(xy=T) |> 
+    rename(value = 3) |> 
+    dplyr::filter(!is.na(value)) |> 
+    # plot
+    ggplot() +
+      geom_raster(mapping = aes(x=x,y=y,fill=value)) +
+      geom_sf(data = public_lands_filter, fill = "gray70", color = "gray80", alpha = 0.3) +
+      geom_sf(data = public_lands_filter |> sf::st_centroid(), color = "gray80", size = 2) +
+      geom_sf_text(
+        data = public_lands_filter |> sf::st_centroid()
+        , mapping = aes(label = maname_ab)
+        , vjust = 4
+        , hjust = 0.7
+        , size = 2.5
+        , color = "white"
+      ) +
+      
+      scale_fill_viridis_c(option = "inferno") +
+      scale_x_continuous(expand = c(0, 0)) +
+      scale_y_continuous(expand = c(0, 0)) +
+      labs(
+        subtitle = bquote(theta==.(theta_val |> format(scientific = FALSE)))
+        , x = "Longitude"
+        , y = "Latitude"
+      ) +
+      theme_bw() +
+      theme(
+        legend.position = "none"
+        , axis.title = element_text(size = 7)
+        , axis.text.y = element_text(size=6)
+        , axis.text.x = element_text(size=6)
+        , panel.border = element_blank()
+        , plot.subtitle = element_text(size=9)
+        , panel.grid = element_blank()
+      ) +
+      guides(size = "none")
+}
+theta_vals <- c(0.000, 0.000001, 0.00001, 0.001)
+plt_list_rw <- theta_vals |> 
+  purrr::map(plt_random_walk_fn)
+cowplot::plot_grid(
+  plotlist = plt_list_rw
+  , nrow = 2
+)
 ```
+
+<span style="color: teal;">
+The figure above shows the probabilities of Florida panther passage based on randomized shortest paths between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area. Randomized shortest-path distance links the idea of least-cost paths and resistance distances as being along a continuum of movement possibilities by altering a parameter, $\theta$. When $\theta=0$, the model is equivalent to a circuit theory approach; as $\theta$ increases the model approaches the least-cost distance method. 
+</span>
 
 
