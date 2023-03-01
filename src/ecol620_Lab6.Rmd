@@ -243,7 +243,7 @@ if(
   ###########################################
   #commute distance matrix
   ###########################################
-    commute_dist_matrix = gdistance::commuteDistance(
+    circuit_dist_matrix = gdistance::commuteDistance(
       transition_layer
       , public_centroids
     )
@@ -256,6 +256,33 @@ if(
       , to=public_centroids
       , theta=0.0001
     )
+}else{
+  ###########################################
+  #least-cost distance matrix
+  ###########################################
+    least_cost_matrix <- c(
+      250607.85, NA, NA, NA
+      , 179140.02, 131344.61, NA, NA
+      , 318972.02, 470623.60, 339278.98, NA
+      , 191449.65, 63048.06, 85583.67, 424862.66
+    ) %>% 
+    matrix(nrow = 4, byrow = T)
+  ###########################################
+  #commute distance matrix
+  ###########################################
+    circuit_dist_matrix <- readRDS("../data/circuit.dist.rds") %>% 
+      as.matrix()
+    # keep lower triangle
+    circuit_dist_matrix[!lower.tri(circuit_dist_matrix, diag = FALSE)] <- NA
+    circuit_dist_matrix <- circuit_dist_matrix[2:nrow(circuit_dist_matrix), 1:ncol(circuit_dist_matrix)-1]
+  ###########################################
+  #randomized shortest-paths distance matrix
+  ###########################################
+    rand_shrtst_pth_matrix <- readRDS("../data/rSP.dist_t0001.tri.rds")
+    # keep lower triangle
+    rand_shrtst_pth_matrix[!lower.tri(rand_shrtst_pth_matrix, diag = FALSE)] <- NA
+    rand_shrtst_pth_matrix <- rand_shrtst_pth_matrix[2:nrow(rand_shrtst_pth_matrix), 1:ncol(rand_shrtst_pth_matrix)-1]
+    
 }
 ###########################################
 #geographic (Euclidean) distance matrix
@@ -270,77 +297,165 @@ if(
   # keep lower triangle
     euclidean_dist_matrix[!lower.tri(euclidean_dist_matrix, diag = FALSE)] <- NA
     euclidean_dist_matrix <- euclidean_dist_matrix[2:nrow(euclidean_dist_matrix), 1:ncol(euclidean_dist_matrix)-1]
-  # create data frame of correlation matrix
-    euclidean_dist_df <- euclidean_dist_matrix %>% 
-      as.data.frame() %>% 
-      tibble::rownames_to_column(var = "public_lands_pt1") %>% 
+###########################################
+# function to convert matrix to df
+###########################################
+matrix_to_df_fn <- function(my_matrix) {
+  df_temp <- my_matrix %>% as.data.frame()
+  names(df_temp) <- c(1:ncol(df_temp))
+  return(
+    df_temp %>% 
+      tibble::rowid_to_column(var = "public_lands_pt1") %>% 
+      dplyr::mutate(public_lands_pt1=public_lands_pt1+1) %>%
       tidyr::pivot_longer(
         cols = c(-public_lands_pt1)
         , names_to = "public_lands_pt2"
       ) %>% 
       dplyr::filter(!is.na(value)) %>% 
       dplyr::rename(distance_m2=value) %>% 
-      dplyr::mutate(across(dplyr::everything(), as.numeric)) %>% 
-      dplyr::left_join(
-        # joint to public lands
-        public_lands %>% 
-          sf::st_set_geometry(NULL) %>% 
-          tibble::rowid_to_column(var = "pt") %>% 
-          dplyr::select(pt, ma_id) %>% 
-          dplyr::rename_with(.fn = ~ paste0(.x, "1"))
-        , by = c("public_lands_pt1"="pt1")
-      ) %>% 
-      dplyr::left_join(
-        # joint to public lands
-        public_lands %>% 
-          sf::st_set_geometry(NULL) %>% 
-          tibble::rowid_to_column(var = "pt") %>% 
-          dplyr::select(pt, ma_id) %>% 
-          dplyr::rename_with(.fn = ~ paste0(.x, "2"))
-        , by = c("public_lands_pt2"="pt2")
-      )
-```
-
-```{r, include=FALSE,eval=TRUE}
-if(
-  gdistance_pkg_still_requires_raster_pkg_format==FALSE
-  | raster_pkg_functions_work_on_my_computer==FALSE
-){
-least_cost_matrix <- c(
-      250607.85, NA, NA, NA
-      , 179140.02, 131344.61, NA, NA
-      , 318972.02, 470623.60, 339278.98, NA
-      , 191449.65, 63048.06, 85583.67, 424862.66
-    ) %>% 
-    matrix(nrow = 4, byrow = T)
-  commute_dist_matrix <-
-  rand_shrtst_pth_matrix <- 
+      dplyr::mutate(across(dplyr::everything(), as.numeric))  
+  )
 }
+## all data
+all_dist_df <- rbind(
+  dplyr::bind_cols(matrix_to_df_fn(euclidean_dist_matrix), method = "euclidean_distance")
+  , dplyr::bind_cols(matrix_to_df_fn(least_cost_matrix), method = "least_cost")
+  , dplyr::bind_cols(matrix_to_df_fn(circuit_dist_matrix), method = "circuit_distance")
+  , dplyr::bind_cols(matrix_to_df_fn(rand_shrtst_pth_matrix), method = "randomized_shortest_path")
+) %>% 
+  dplyr::left_join(
+      # joint to public lands
+      public_lands %>% 
+        sf::st_centroid() %>% 
+        tibble::rowid_to_column(var = "pt") %>% 
+        sf::st_centroid() %>%
+        dplyr::mutate(
+          x = sf::st_coordinates(.)[,1]
+          , y = sf::st_coordinates(.)[,2]
+        ) %>% 
+        sf::st_set_geometry(NULL) %>% 
+        dplyr::select(pt, ma_id, maname, x, y) %>% 
+        dplyr::rename_with(.fn = ~ paste0(.x, "1"))
+      , by = c("public_lands_pt1"="pt1")
+    ) %>% 
+    dplyr::left_join(
+      # joint to public lands
+      public_lands %>% 
+        sf::st_centroid() %>% 
+        tibble::rowid_to_column(var = "pt") %>% 
+        sf::st_centroid() %>%
+        dplyr::mutate(
+          x = sf::st_coordinates(.)[,1]
+          , y = sf::st_coordinates(.)[,2]
+        ) %>% 
+        sf::st_set_geometry(NULL) %>% 
+        dplyr::select(pt, ma_id, maname, x, y) %>% 
+        dplyr::rename_with(.fn = ~ paste0(.x, "2"))
+      , by = c("public_lands_pt2"="pt2")
+    )
+
 ```
 
+### Correlation between effective distance methods
 
 ```{r}
-#make data frame of distances
-all.dist = data.frame(Euclidean=as.vector(geo.dist),
-                     lcd=as.vector(lc.dist),
-                     circuit=as.vector(circuit.dist),
-                     rSP=na.omit(as.vector(rSP.dist_t0001.tri)))
-
-#correlation
-round(cor(all.dist),3)
+  # calculate correlation matrix
+  cor_matrix <- all_dist_df %>% 
+    tidyr::pivot_wider(
+      names_from = "method"
+      , values_from = "distance_m2"
+      , 
+    ) %>% 
+    dplyr::select(c("euclidean_distance","least_cost","circuit_distance","randomized_shortest_path")) %>% 
+    cor()
+  # keep lower triangle
+  cor_matrix[!lower.tri(cor_matrix, diag = FALSE)] <- NA
+  cor_matrix <- cor_matrix[2:nrow(cor_matrix), 1:ncol(cor_matrix)-1]
+  # find the highest correlation
+  max_cor_temp <- max(cor_matrix, na.rm = TRUE)
+  k_temp <- arrayInd(which(cor_matrix == max_cor_temp), dim(cor_matrix))
+  highest_cor_names <- mapply(`[[`, dimnames(cor_matrix), k_temp)
+  # HTML table of correlation matrix
+  options(knitr.kable.NA = "")
+  kableExtra::kable(cor_matrix
+      , format = "html" 
+      , caption = "Correlation between effective distance calculation methods"
+      , digits = 3
+    ) %>% 
+    kable_styling(font_size = 11)
+  
+  
 ```
+
+<span style="color: teal;">
+The greatest correlation in the effective distance occurs between the methods of **`r paste0(paste0(highest_cor_names %>% stringr::str_replace_all("_"," "), collapse= " & "), " (correlation = ", round(max_cor_temp,3),")")`**. The randomized shortest-path distance calculate above had $\theta=0.0001$, a relatively large value, which resulted in the model distances approaching the least-cost distance method.
+</span>
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE}
+remove(list = ls()[grep("_temp",ls())])
+gc()
+```
+
 
 ## Question 4	
 
 Within plot 9.7 of Fletcher and Fortin, what does a single point mean? Why are there 10 points per plot? (1-2 sentences) (2 pts)
 
+<span style="color: teal;">
+The points in Figure 9.7 of Fletcher and Fortin represent the correlation between effective distances between protected areas that have been standardized to mean of 0 variance of 1. There are 10 points per plot because for each of the five protected areas they calculated both the scaled correlation and the inverse of the scaled correlation between the different effective distance calculations.
+</span>
 
 ## Question 5
 
 a)	Using the four methods (Euclidean distance, least-cost distance, commute distance, and randomized shortest-paths distance), make a single four-paneled plot with line segments connecting the public land centroids with the cost raster and protected areas under these segments. Weight the line segments by the inverse of the effective distance. Use ggplot to generate the plot. See example on Canvas (11 pts)
 
 ```{r}
-
+plt_map_dist_fn <- function(mthd) {
+  resistance_surface %>% 
+    as.data.frame(xy=T) %>% 
+    dplyr::rename(resistance=3) %>% 
+    dplyr::mutate(resistance=as.factor(resistance)) %>% 
+  ggplot(.) +
+    geom_raster(mapping = aes(x=x, y=y, fill=resistance)) +
+      geom_sf(data = public_lands, fill = "gray70", color = "gray30", alpha = 0.8) +
+      geom_segment(
+        data = all_dist_df %>% dplyr::filter(method == mthd)
+        , mapping = aes(x = x1, y = y1, xend = x2, yend = y2, size = (1/distance_m2)) # 
+        , lineend = "round"
+        , linejoin = "round"
+        , color = "gray20"
+        , alpha = 0.7
+      ) +
+      scale_fill_viridis_d(option = "cividis") +
+      scale_x_continuous(expand = c(0, 0)) +
+      scale_y_continuous(expand = c(0, 0)) +
+      labs(
+        subtitle = stringr::str_replace_all(mthd, "_", " ") %>% stringr::str_to_title()
+        , x = "Longitude"
+        , y = "Latitude"
+        , fill = "Resistance"
+      ) +
+      theme_bw() +
+      theme(
+        legend.position = c(0.15, 0.25)
+        , legend.key.size = unit(0.25, 'cm')
+        , legend.text = element_text(size = 7)
+        , legend.title = element_text(size = 7)
+        , axis.title = element_text(size = 7)
+        , axis.text.y = element_text(size=6)
+        , axis.text.x = element_text(size=6)
+        , panel.border = element_blank()
+        , plot.subtitle = element_text(size=9)
+        , panel.grid = element_blank()
+      ) +
+      guides(size = "none")
+}
+plt_list <- unique(all_dist_df$method) %>% 
+  purrr::map(plt_map_dist_fn)
+cowplot::plot_grid(
+  plotlist = plt_list
+  , nrow = 2
+)
 ```
 
 
@@ -348,10 +463,37 @@ a)	Using the four methods (Euclidean distance, least-cost distance, commute dist
 
 Do you see any prominent differences among the methods? You can make a visual assessment. (1-2 sentences) (2 pts)
 
+<span style="color: teal;">
+Based on visual inspection of the plot above, the most prominent differences occur between the Euclidean distance and Circuit distance methods.
+</span>
+
 
 ### part c
 
 Which conservation area pairing shows the greatest travel cost by least cost distance? Which conservation area pairing shows the least travel cost by circuit theory? Please provide the names of the parks. (2 pts)
+
+```{r}
+lcd_temp <- all_dist_df %>% dplyr::filter(method == "least_cost") %>% 
+  dplyr::arrange(desc(distance_m2)) %>% 
+  dplyr::filter(dplyr::row_number()==1) %>%
+  dplyr::mutate(nm = paste0(maname1," & ", maname2) %>% stringr::str_to_title()) %>% 
+  dplyr::pull(nm)
+circ_temp <- all_dist_df %>% dplyr::filter(method == "circuit_distance") %>% 
+  dplyr::arrange(distance_m2) %>% 
+  dplyr::filter(dplyr::row_number()==1) %>%
+  dplyr::mutate(nm = paste0(maname1," & ", maname2) %>% stringr::str_to_title()) %>% 
+  dplyr::pull(nm)
+```
+
+<span style="color: teal;">
+The conservation area pairing that shows the *greatest* travel cost by least cost distance is **`r lcd_temp`**. The conservation area pairing that shows the *least* travel cost by circuit theory is **`r circ_temp`**
+</span>
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, include=FALSE}
+remove(list = ls()[grep("_temp",ls())])
+gc()
+```
+
 
 ---
 
