@@ -503,9 +503,112 @@ gc()
 
 Plot the least cost-path and least-cost corridor between Okaloacoochee Slough State Forest and Fred C. Babcock-Cecil M. Webb Wildlife Management Area using the lower 20% of accumulated cost cells. Include the outline of the conservation areas, the centroid points (of the conservation areas), and the resistance surface. Use ggplot to generate the plot. (8 pts)
 
-```{r}
+############################################
+# Least-cost corridor
+############################################
 
+```{r}
+# filter polygons
+public_lands_filter <- public_lands |> 
+  dplyr::filter(
+    maname_ab %in% c("OKALOACOOCHEE SLOUGH SF", "BABCOCK-WEBB WMA")
+  )
+# filter resistance surface
+resistance_surface_filter <- resistance_surface |> 
+  terra::crop(
+    public_lands_filter |> sf::st_union() |> sf::st_buffer(1000)
+  )
+# create adjacency matrix aka transition matrix
+  # this has to be done on a RasterLayer :(
+transition_matrix <- gdistance::transition(
+  1 / raster::raster(resistance_surface)
+  , transitionFunction = mean
+  , directions = 8
+)
+transition_matrix_filter <- gdistance::transition(
+  1 / raster::raster(resistance_surface_filter)
+  , transitionFunction = mean
+  , directions = 8
+)
+# apply correction
+transition_matrix <- gdistance::geoCorrection(transition_matrix, type="c", multpl=FALSE)
+transition_matrix_filter <- gdistance::geoCorrection(transition_matrix_filter, type="c", multpl=FALSE)
+#get least cost path
+least_cost_path <- gdistance::shortestPath(
+  transition_matrix
+  , public_lands_filter |> dplyr::filter(dplyr::row_number()==1) |> 
+    sf::st_centroid() |> sf::st_coordinates()
+  , public_lands_filter |> dplyr::filter(dplyr::row_number()==2) |> 
+    sf::st_centroid() |> sf::st_coordinates()
+  , output="SpatialLines"
+)
+#get cumulative costs from each public land
+cum_cost1 <- gdistance::accCost(transition_matrix
+  , public_lands_filter |> dplyr::filter(dplyr::row_number()==1) |> 
+    sf::st_centroid() |> sf::st_coordinates()
+)
+cum_cost2 <- gdistance::accCost(transition_matrix
+  , public_lands_filter |> dplyr::filter(dplyr::row_number()==2) |> 
+    sf::st_centroid() |> sf::st_coordinates()
+)
+#get least-cost corridor
+  #Create a new Raster* object, based on two or more Raster* objects.
+least_cost_corridor <- raster::overlay(
+    cum_cost1
+    , cum_cost2
+    , fun=function(x, y){return(x + y)}
+  ) |> 
+  terra::rast()
+
+if(FALSE){
+  #plot
+  plot(resistance_surface_filter, axes=F, box=F)
+  plot(public_lands_filter, add=T)
+  points(public_lands_filter |> sf::st_centroid() |> sf::st_coordinates(), col="grey20")
+  lines(least_cost_path, col="red", lw=3)
+  
+  #plot
+  plot(least_cost_corridor, legend=F, axes=F)
+  plot(public_lands_filter, add=T)
+
+}
+###
+###
+###
+#get lower quantile
+quantile10 = quantile(leastcost_corridor, probs=0.10, na.rm=TRUE)
+
+#make new truncated layer
+leastcost_corridor10 = leastcost_corridor
+values(leastcost_corridor10) = NA
+leastcost_corridor10[leastcost_corridor < quantile10] = 1 #truncate to identify corridor
+
+#plot
+plot(leastcost_corridor, legend=F, axes=F)
+plot(leastcost_corridor10, legend=F,axes=F, add=T)
+points(public_centroids, col="grey30")
+lines(fpwr_ossf_lcp, col="red", lw=3)
+###
+gg_corridor=as.data.frame(leastcost_corridor, xy=T)
+gg_corridor10=as.data.frame(leastcost_corridor10, xy=T)
+gg_lcp= sp::SpatialLinesDataFrame(fpwr_ossf_lcp, data.frame(ID = c(1)), match.ID = F)
+poly_two_park=subset(public, MANAME=="FLORIDA PANTHER NATIONAL WILDLIFE REFUGE"|MANAME=="OKALOACOOCHEE SLOUGH STATE FOREST")
+
+ggplot()+
+  geom_raster(data=gg_corridor, aes(x=x, y=y, fill=(layer)))+
+  geom_raster(data=na.omit(gg_corridor10), aes(x=x, y=y), fill="gray")+
+  geom_path(data=gg_lcp,  aes(x=long, y=lat), size=2, colour="red")+
+  geom_point(data=as.data.frame(public_centroids), aes(x=x, y=y),colour="white", size=4)+
+  geom_polygon(data=poly_two_park, aes(x=long, y=lat, group=group),colour="white", fill="gray", alpha=.3)+
+   coord_equal(xlim=c(min(gg_corridor$x),max(gg_corridor$x)),
+              ylim=c(min(gg_corridor$y),max(gg_corridor$y)))+
+  scale_fill_viridis_c(option = "B", direction = -1)+
+  theme_classic()+
+  labs(y="Northing (m)", x="Easting (m)", fill="Sum of the \ncumulative \nresistances")+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size=15))
 ```
+
 
 ### part a)	
 
