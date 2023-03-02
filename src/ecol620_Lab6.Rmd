@@ -403,7 +403,7 @@ gc()
 Within plot 9.7 of Fletcher and Fortin, what does a single point mean? Why are there 10 points per plot? (1-2 sentences) (2 pts)
 
 <span style="color: teal;">
-The points in Figure 9.7 of Fletcher and Fortin represent the correlation between effective distances between protected areas that have been standardized to mean of 0 variance of 1. There are 10 points per plot because for each of the five protected areas they calculated both the scaled correlation and the inverse of the scaled correlation between the different effective distance calculations.
+The points in Figure 9.7 of Fletcher and Fortin represent the correlation between effective distances between protected areas that have been standardized to mean of 0 variance of 1. There are 10 points per plot because for each of the five protected areas is a calculation of the effective distance to the other four protected areas, resulting in 10 unique protected area pair combinations.
 </span>
 
 ## Question 5
@@ -760,7 +760,7 @@ plt_random_walk_fn <- function(theta_val) {
         data = public_lands_filter |> sf::st_centroid()
         , mapping = aes(label = maname_ab)
         , vjust = 4
-        , hjust = 0.7
+        , hjust = 0.55
         , size = 2.5
         , color = "white"
       ) +
